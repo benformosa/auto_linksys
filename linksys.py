@@ -1,6 +1,10 @@
 #!/usr/local/bin/python3
-# interact with a linksys x6200 router, firmware 1.0.00 (014)
-# Ben Formosa
+
+"""Interact with a linksys x6200 router
+
+Tested on firmware 1.0.00 (014)
+Author: Ben Formosa
+"""
 
 import argparse
 import hashlib
@@ -11,8 +15,10 @@ from urllib.parse import urljoin
 
 def en_value(data):
     """Encode data for passing to login form.
+
     The string data is padded to 64 characters and hashed.
-    This is a port of en_value(data), from index.html on the router's web interface"""
+    This is a port of en_value(data), from index.html on the router's web interface
+    """
 
     pseed2 = ''
     buffer1 = data
@@ -37,18 +43,38 @@ def en_value(data):
     m.update(b)
     return m.hexdigest()
 
+def login(
+        base_url,
+        user,
+        password
+    ):
+    """Login to the router and return session_id"""
+    
+    login_data = {
+        'submit_button': 'login',
+        'enc': '1',
+        'origin_address': base_url,
+        'user': user,
+        'pwd': en_value(password),
+    }
+
+    return ';session_id=' + get_session_key(base_url, login_data)
+
 def get_session_key(base_url, login_data):
+    """Return session_key"""
     r = requests.post(urljoin(base_url, 'login.cgi'), data=login_data)
     pattern = re.compile(r"var session_key='\w+';")
     return re.search(pattern, r.text).group().split("'")[1]
 
-def get_status(base_url, session_id):
-    r = requests.get(urljoin(base_url, 'Status_Router.asp' + session_id), stream=True)
+def get_page(base_url, session_id, page):
+    """GET a page"""
+    r = requests.get(urljoin(base_url, page + session_id), stream=True)
     return r
 
 def get_info(base_url, session_id):
+    """Get data on the router's status"""
     info = {}
-    r = get_status(base_url, session_id)
+    r = get_page(base_url, session_id, 'Status_Router.asp')
     start_pattern = re.compile(r'ej.extend\(')
     end_pattern = re.compile(r'},')
     matching = False
@@ -70,36 +96,47 @@ def get_info(base_url, session_id):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', '--target', metavar='HOSTNAME', type=str,
+    parser.add_argument(
+        '-t',
+        '--target',
         default='192.168.1.1',
-        help="Hostname or IP address of router")
+        help="Hostname or IP address of router",
+        metavar='HOSTNAME',
+        type=str,
+    )
 
-    parser.add_argument('-u', '--user', metavar='USER', type=str,
+    parser.add_argument(
+        '-u',
+        '--user',
+        metavar='USER',
+        type=str,
         default='admin',
-        help="Name of admin user")
+        help="Name of admin user",
+    )
 
-    parser.add_argument('-p', '--password', metavar='PASSWORD', type=str,
-        help="Password of admin user")
+    parser.add_argument(
+        '-p',
+        '--password',
+        help="Password of admin user",
+        metavar='PASSWORD',
+        required=True,
+        type=str,
+    )
 
-    parser.add_argument('command', metavar='COMMAND', type=str, nargs='?',
+    parser.add_argument(
+        'command',
         choices=['info', 'status'],
         default='info',
-        help='Command to run')
+        help='Command to run',
+        metavar='COMMAND',
+        nargs='?',
+        type=str,
+    )
     
     args = parser.parse_args()
-    
     base_url = urljoin('http:', '//' + args.target + '/')
-    hashed_password = en_value(args.password)
-
-    login_data = {
-        'submit_button': 'login',
-        'enc': '1',
-        'origin_address': base_url,
-        'user': args.user,
-        'pwd': hashed_password,
-    }
-
-    session_id = ';session_id=' + get_session_key(base_url, login_data)
+    
+    session_id = login(base_url, args.user, args.password)
 
     if(args.command == 'info'):
         print(get_info(base_url, session_id))
