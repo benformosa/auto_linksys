@@ -2,15 +2,17 @@
 
 """Interact with a linksys x6200 router
 
-Tested on firmware 1.0.00 (014)
+Tested on firmware 1.0.00 (019)
 Author: Ben Formosa
 """
 
 import argparse
+import errno
 import hashlib
 import os
 import re
 import requests
+import sys
 from urllib.parse import urljoin
 
 def en_value(data):
@@ -48,7 +50,12 @@ def login(
         user,
         password
     ):
-    """Login to the router and return session_id"""
+    """Login to the router and return session_key
+    
+    Raises:
+        requests.exceptions.ConnectionError if connection to router fails
+        ValueError if login fails
+    """
     
     login_data = {
         'submit_button': 'login',
@@ -58,23 +65,26 @@ def login(
         'pwd': en_value(password),
     }
 
-    return ';session_id=' + get_session_key(base_url, login_data)
-
-def get_session_key(base_url, login_data):
-    """Return session_key"""
-    r = requests.post(urljoin(base_url, 'login.cgi'), data=login_data)
+    # raises ConnectionError if connection to host fails
+    r = requests.post(urljoin(base_url, 'login.cgi'), data=login_data)    
     pattern = re.compile(r"var session_key='\w+';")
-    return re.search(pattern, r.text).group().split("'")[1]
-
-def get_page(base_url, session_id, page):
+    
+    # search will be None if the login fails
+    search = re.search(pattern, r.text)
+    if(search):
+        return search.group().split("'")[1]
+    else:
+        raise ValueError
+    
+def get_page(base_url, session_key, page):
     """GET a page"""
-    r = requests.get(urljoin(base_url, page + session_id), stream=True)
+    r = requests.get(urljoin(base_url, page + ';session_id=' + session_key), stream=True)
     return r
 
-def get_info(base_url, session_id):
+def get_info(base_url, session_key):
     """Get data on the router's status"""
     info = {}
-    r = get_page(base_url, session_id, 'Status_Router.asp')
+    r = get_page(base_url, session_key, 'Status_Router.asp')
     start_pattern = re.compile(r'ej.extend\(')
     end_pattern = re.compile(r'},')
     matching = False
@@ -136,10 +146,20 @@ def main():
     args = parser.parse_args()
     base_url = urljoin('http:', '//' + args.target + '/')
     
-    session_id = login(base_url, args.user, args.password)
-
-    if(args.command == 'info'):
-        print(get_info(base_url, session_id))
+    try:
+        session_key = login(base_url, args.user, args.password)
+        
+        if(args.command == 'info'):
+            print(get_info(base_url, session_key))
+    
+    except requests.exceptions.ConnectionError:
+        print('Connection to router failed, check the hostname or IP address',
+            file=sys.stderr)
+        sys.exit(errno.ECONNREFUSED)
+    except ValueError:
+        print('Login to router failed, check the username and password',
+            file=sys.stderr)
+        sys.exit(errno.EACCES)
 
 if __name__ == '__main__':
     main()
