@@ -66,7 +66,7 @@ def login(
     }
 
     # raises ConnectionError if connection to host fails
-    r = requests.post(urljoin(base_url, 'login.cgi'), data=login_data)    
+    r = requests.post(urljoin(base_url, 'login.cgi'), data=login_data)  
     pattern = re.compile(r"var session_key='\w+';")
     
     # search will be None if the login fails
@@ -104,7 +104,42 @@ def get_info(base_url, session_key):
                 pass
     return info
 
+def reconnect(base_url, session_key):
+    """Request the router to reconnect"""
+
+    data = {
+        'change_action': 'gozila_cgi',
+        'submit_type': 'start_wan',
+        'submit_button': 'Status_Router',
+        'session_key': session_key,
+    }
+
+    r = requests.post(urljoin(base_url, 'apply.cgi' + ';session_id=' + session_key), data=data)
+
+def get_ip(base_url, session_key):
+    """Get the IP address set on the router"""
+
+    return get_info(base_url, session_key)['wan_ipaddr']
+
+def check_ip(base_url, session_key):
+    """Simple connection test
+
+    Compare the router's IP to the result of whatismyipaddress.com
+    Returns true if they match
+    """
+
+    router_ip = get_ip(base_url, session_key)
+    remote_ip = requests.get('https://bot.whatismyipaddress.com/').text
+    if(router_ip == remote_ip):
+        print("Connection OK")
+        return True
+    else:
+        print("Connection problem")
+        return False
+
 def main():
+    """Handle argments, login to the router and exceptions"""
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-t',
@@ -135,7 +170,11 @@ def main():
 
     parser.add_argument(
         'command',
-        choices=['info', 'status'],
+        choices=[
+            'info',
+            'reconnect',
+            'test'
+        ],
         default='info',
         help='Command to run',
         metavar='COMMAND',
@@ -151,6 +190,11 @@ def main():
         
         if(args.command == 'info'):
             print(get_info(base_url, session_key))
+        elif(args.command == 'reconnect'):
+            reconnect(base_url, session_key)
+            check_ip(base_url, session_key)
+        elif(args.command == 'test'):
+            check_ip(base_url, session_key)
     
     except requests.exceptions.ConnectionError:
         print('Connection to router failed, check the hostname or IP address',
